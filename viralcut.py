@@ -649,7 +649,7 @@ def write_report(outdir: Path, source: str, clips: list, files: list,
             lines.append(f"- #️⃣ Хэштеги: {' '.join(c.hashtags)}")
         if c.why:
             lines.append(f"- 💡 Почему: {c.why}")
-    rep.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    rep.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
     return rep
 
 
