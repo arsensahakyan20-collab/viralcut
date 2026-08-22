@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.env
+shorts_*/
+*.mp4
+*.wav
+*.mkv
+*.webm
+.DS_Store
