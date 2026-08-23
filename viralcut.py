@@ -522,8 +522,13 @@ BRAND_COLORS = [
     ("малиновый", "&H00B469FF"),
 ]
 
-HIGHLIGHT = r"{\c&H00FFFF&\fscx112\fscy112}"  # жёлтый + лёгкое увеличение
 RESET = r"{\r}"
+
+
+def highlight_tag(color: str) -> str:
+    """Подсветка активного слова: цвет клипа + лёгкое увеличение."""
+    c = color.replace("&H00", "&H")  # \c принимает &HBBGGRR&
+    return rf"{{\c{c}&\fscx112\fscy112}}"
 
 
 def ass_time(t: float) -> str:
@@ -559,7 +564,8 @@ def group_caption_words(words: list, max_words=3, max_chars=16, max_gap=0.6) -> 
 
 def build_ass(words: list, clip_start: float, font: str,
               brand_text: str = "", brand_color: str = "&H0000FFFF",
-              clip_dur: float = 0.0) -> str:
+              clip_dur: float = 0.0,
+              highlight_color: str = "&H0000FFFF") -> str:
     """Караоке-субтитры: группа из 2-3 слов, активное слово подсвечено.
     Плюс постоянная брендовая надпись внизу (не закрывает персонажа)."""
     shifted = [Word(w.text, max(0.0, w.start - clip_start),
@@ -579,11 +585,12 @@ def build_ass(words: list, clip_start: float, font: str,
             t1 = group[i + 1].start if i + 1 < len(group) else group_end
             if t1 <= t0:
                 t1 = t0 + 0.05
+            hl = highlight_tag(highlight_color)
             parts = []
             for k, d in enumerate(display):
                 if not d:
                     continue
-                parts.append(f"{HIGHLIGHT}{d}{RESET}" if k == i else d)
+                parts.append(f"{hl}{d}{RESET}" if k == i else d)
             text = " ".join(parts)
             lines.append(f"Dialogue: 0,{ass_time(t0)},{ass_time(t1)},"
                          f"Cap,,0,0,0,,{text}")
@@ -601,7 +608,8 @@ def slugify(text: str, max_len: int = 40) -> str:
 
 def render_clip(video: Path, c: Clip, words: list, out_path: Path,
                 style: str, captions: bool, font: str, workdir: Path,
-                brand_text: str = "", brand_color: str = "&H0000FFFF") -> bool:
+                brand_text: str = "", brand_color: str = "&H0000FFFF",
+                highlight_color: str = "&H0000FFFF") -> bool:
     clip_words = [w for w in words if w.start >= c.start - 0.2 and w.end <= c.end + 0.5]
     if not captions:
         clip_words = []
@@ -619,7 +627,8 @@ def render_clip(video: Path, c: Clip, words: list, out_path: Path,
     if clip_words or brand_text:
         ass_name = f"cap_{out_path.stem}.ass"
         (workdir / ass_name).write_text(
-            build_ass(clip_words, c.start, font, brand_text, brand_color, c.dur),
+            build_ass(clip_words, c.start, font, brand_text, brand_color,
+                      c.dur, highlight_color),
             encoding="utf-8-sig")
         fc = f"{base};[base]ass={ass_name}[v]"
     else:
@@ -774,7 +783,8 @@ def main() -> None:
                 cname, ccode = BRAND_COLORS[name_to_idx[args.brand_color]]
             if render_clip(video, c, words, out_path, args.style,
                            not args.no_captions, args.font, workdir,
-                           brand_text=args.brand, brand_color=ccode):
+                           brand_text=args.brand, brand_color=ccode,
+                           highlight_color=ccode):
                 files.append(out_path)
                 ok_clips.append(c)
                 extra = f", надпись: {cname}" if args.brand else ""
