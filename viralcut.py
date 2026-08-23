@@ -180,6 +180,35 @@ def extract_audio(video: Path, wav: Path) -> None:
 # ----------------------------------------------------------------------------
 # Транскрипция (faster-whisper)
 # ----------------------------------------------------------------------------
+def transcript_cache_path(video: Path, model_size: str) -> Path:
+    return video.with_name(video.name + f".vc_{model_size}.json")
+
+
+def load_transcript_cache(video: Path, model_size: str):
+    cache = transcript_cache_path(video, model_size)
+    if not cache.exists():
+        return None
+    try:
+        data = json.loads(cache.read_text(encoding="utf-8"))
+        words = [Word(t, s, e) for t, s, e in data["words"]]
+        say(f"⚡ Нашёл сохранённую расшифровку ({cache.name}) — "
+            f"пропускаю распознавание.")
+        return words, data["lang"]
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return None
+
+
+def save_transcript_cache(video: Path, model_size: str, words, lang) -> None:
+    try:
+        transcript_cache_path(video, model_size).write_text(
+            json.dumps({"lang": lang,
+                        "words": [[w.text, w.start, w.end] for w in words]},
+                       ensure_ascii=False),
+            encoding="utf-8")
+    except OSError:
+        pass  # папка только для чтения — просто не кэшируем
+
+
 def transcribe(wav: Path, model_size: str, lang: str, total_dur: float):
     try:
         from faster_whisper import WhisperModel
@@ -721,6 +750,8 @@ def main() -> None:
     ap.add_argument("--out", default=None, help="папка результатов")
     ap.add_argument("--keep-temp", action="store_true",
                     help="не удалять временные файлы")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="не использовать сохранённую расшифровку")
     ap.add_argument("--version", action="version", version=f"ViralCut {VERSION}")
     args = ap.parse_args()
 
@@ -753,10 +784,16 @@ def main() -> None:
         say(f"🎞  Видео: {fmt_tc(meta['duration'])}, "
             f"{meta['width']}x{meta['height']}")
 
-        wav = workdir / "audio.wav"
-        extract_audio(video, wav)
-
-        words, lang = transcribe(wav, args.model, args.lang, meta["duration"])
+        cached = None if args.no_cache else \
+            load_transcript_cache(video, args.model)
+        if cached:
+            words, lang = cached
+        else:
+            wav = workdir / "audio.wav"
+            extract_audio(video, wav)
+            words, lang = transcribe(wav, args.model, args.lang,
+                                     meta["duration"])
+            save_transcript_cache(video, args.model, words, lang)
         if len(words) < 20:
             die("Речь почти не распознана — в видео мало слов? "
                 "Попробуйте --model medium.")
