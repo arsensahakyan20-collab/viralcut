@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .env
 shorts_*/
+batch_log.txt
+run_batch.py
 *.mp4
 *.wav
 *.mkv
