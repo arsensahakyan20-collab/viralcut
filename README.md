@@ -66,8 +66,17 @@ python viralcut.py "видео.mp4" --clips 8 --min-dur 20 --max-dur 45 --style 
 --model tiny|base|small|medium|large-v3   (точность/скорость Whisper)
 --style blur|crop     9:16: размытый фон или кроп
 --no-captions         без субтитров
+--brand "ТЕКСТ"       яркая надпись внизу каждого клипа (сайт/бренд)
+--brand-color auto|yellow|pink|cyan|lime|orange|crimson
+                      цвет надписи (auto = каждому клипу свой цвет)
 --font "Arial Black"  шрифт субтитров
 --out ПАПКА           куда сложить результат
+```
+
+Пример с брендированием:
+
+```bat
+python viralcut.py "видео.mp4" --brand "mysite.com - мой продукт"
 ```
 
 ## Честное сравнение с Opus.pro / Vizard.ai

@@ -506,10 +506,21 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,2,50,50,600,1
+Style: Brand,{font},52,{brand_color},&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,40,40,150,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+
+# Яркие цвета брендовой надписи (ASS-формат &HAABBGGRR), по одному на клип
+BRAND_COLORS = [
+    ("жёлтый",   "&H0000FFFF"),
+    ("розовый",  "&H00FF00FF"),
+    ("голубой",  "&H00FFFF00"),
+    ("салатовый", "&H0000FF00"),
+    ("оранжевый", "&H0000A5FF"),
+    ("малиновый", "&H00B469FF"),
+]
 
 HIGHLIGHT = r"{\c&H00FFFF&\fscx112\fscy112}"  # жёлтый + лёгкое увеличение
 RESET = r"{\r}"
@@ -546,11 +557,18 @@ def group_caption_words(words: list, max_words=3, max_chars=16, max_gap=0.6) -> 
     return groups
 
 
-def build_ass(words: list, clip_start: float, font: str) -> str:
-    """Караоке-субтитры: группа из 2-3 слов, активное слово подсвечено."""
+def build_ass(words: list, clip_start: float, font: str,
+              brand_text: str = "", brand_color: str = "&H0000FFFF",
+              clip_dur: float = 0.0) -> str:
+    """Караоке-субтитры: группа из 2-3 слов, активное слово подсвечено.
+    Плюс постоянная брендовая надпись внизу (не закрывает персонажа)."""
     shifted = [Word(w.text, max(0.0, w.start - clip_start),
                     max(0.0, w.end - clip_start)) for w in words]
-    lines = [ASS_HEADER.format(font=font)]
+    lines = [ASS_HEADER.format(font=font, brand_color=brand_color)]
+    if brand_text and clip_dur > 0:
+        safe = brand_text.replace("{", "(").replace("}", ")")
+        lines.append(f"Dialogue: 1,{ass_time(0)},{ass_time(clip_dur)},"
+                     f"Brand,,0,0,0,,{{\\fad(300,300)}}{safe}")
     for group in group_caption_words(shifted):
         display = [clean_caption_word(w.text) for w in group]
         if not any(display):
@@ -582,8 +600,11 @@ def slugify(text: str, max_len: int = 40) -> str:
 
 
 def render_clip(video: Path, c: Clip, words: list, out_path: Path,
-                style: str, captions: bool, font: str, workdir: Path) -> bool:
+                style: str, captions: bool, font: str, workdir: Path,
+                brand_text: str = "", brand_color: str = "&H0000FFFF") -> bool:
     clip_words = [w for w in words if w.start >= c.start - 0.2 and w.end <= c.end + 0.5]
+    if not captions:
+        clip_words = []
 
     if style == "crop":
         base = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase," \
@@ -595,10 +616,11 @@ def render_clip(video: Path, c: Clip, words: list, out_path: Path,
                 "[bg][fg]overlay=(W-w)/2:(H-h)/2[base]")
 
     ass_name = None
-    if captions and clip_words:
+    if clip_words or brand_text:
         ass_name = f"cap_{out_path.stem}.ass"
         (workdir / ass_name).write_text(
-            build_ass(clip_words, c.start, font), encoding="utf-8-sig")
+            build_ass(clip_words, c.start, font, brand_text, brand_color, c.dur),
+            encoding="utf-8-sig")
         fc = f"{base};[base]ass={ass_name}[v]"
     else:
         fc = base.replace("[base]", "[v]", 1) if style == "crop" \
@@ -680,6 +702,12 @@ def main() -> None:
                     help="модель для Claude API")
     ap.add_argument("--no-captions", action="store_true",
                     help="без встроенных субтитров")
+    ap.add_argument("--brand", default="",
+                    help="яркая надпись внизу каждого клипа (сайт/бренд)")
+    ap.add_argument("--brand-color", default="auto",
+                    choices=["auto", "yellow", "pink", "cyan", "lime",
+                             "orange", "crimson"],
+                    help="цвет надписи (auto = каждому клипу свой)")
     ap.add_argument("--font", default="Arial Black", help="шрифт субтитров")
     ap.add_argument("--out", default=None, help="папка результатов")
     ap.add_argument("--keep-temp", action="store_true",
@@ -735,14 +763,22 @@ def main() -> None:
             f"субтитры: {'выкл' if args.no_captions else 'вкл'})…")
         files = []
         ok_clips = []
+        name_to_idx = {"yellow": 0, "pink": 1, "cyan": 2, "lime": 3,
+                       "orange": 4, "crimson": 5}
         for idx, c in enumerate(clips, 1):
             name = f"{idx:02d}_score{c.score:02d}_{slugify(c.title)}.mp4"
             out_path = outdir / name
+            if args.brand_color == "auto":
+                cname, ccode = BRAND_COLORS[(idx - 1) % len(BRAND_COLORS)]
+            else:
+                cname, ccode = BRAND_COLORS[name_to_idx[args.brand_color]]
             if render_clip(video, c, words, out_path, args.style,
-                           not args.no_captions, args.font, workdir):
+                           not args.no_captions, args.font, workdir,
+                           brand_text=args.brand, brand_color=ccode):
                 files.append(out_path)
                 ok_clips.append(c)
-                say(f"    [{idx}/{len(clips)}] {name} ({c.dur:.0f}с) ✔")
+                extra = f", надпись: {cname}" if args.brand else ""
+                say(f"    [{idx}/{len(clips)}] {name} ({c.dur:.0f}с{extra}) ✔")
 
         if not files:
             die("Ни один клип не срендерился.")
