@@ -112,6 +112,36 @@ EN_PHRASES = [
     "most people", "no one talks", "nobody talks", "you won't believe",
     "the biggest mistake", "listen to me", "i'm going to show",
 ]
+PL_STEMS = [
+    "sekret", "szok", "błąd", "błęd", "pieniądz", "pieniędz", "dolar",
+    "milion", "tysiąc", "tysięc", "nigdy", "zawsze", "prawd", "kłamst",
+    "oszust", "darmo", "trik", "trick", "ważn", "najważniejsz", "głupi",
+    "szalon", "niesamowit", "porażk", "sukces", "wygra", "przegra",
+    "strac", "trac", "zarob", "zarabia", "bogat", "biedn", "niebezpieczn",
+    "zapamiętaj", "wyobraź", "uwag", "uważaj", "dlaczego", "czemu",
+    "histori", "okazał", "okazuje", "szczerze", "fakt", "dowód", "dowod",
+    "nagle", "wstyd", "boję", "boisz", "strach", "nienawidz", "kocham",
+    "najlepsz", "najgorsz", "przestań", "zakaz", "ryzyk", "prost", "łatw",
+    "szybk", "skuteczn", "efekt", "wynik", "wzrost", "spad", "kar",
+    "pozycj", "google", "klient", "sprzeda", "konkurencj",
+]
+PL_PHRASES = [
+    "tak naprawdę", "najważniejsze jest", "mało kto", "nikt nie mówi",
+    "nie uwierzysz", "największy błąd", "posłuchaj", "pokażę ci",
+    "musisz wiedzieć", "zapamiętaj to", "prawda jest taka", "co ciekawe",
+    "uwaga na", "po pierwsze",
+]
+LEXICONS = {
+    "ru": (RU_STEMS, RU_PHRASES),
+    "en": (EN_STEMS, EN_PHRASES),
+    "pl": (PL_STEMS, PL_PHRASES),
+}
+HASHTAGS = {
+    "ru": ["#shorts", "#рек", "#рекомендации"],
+    "en": ["#shorts", "#viral", "#fyp"],
+    "pl": ["#shorts", "#seo", "#pozycjonowanie"],
+}
+SUPPORTED_LANGS = ("ru", "en", "pl")
 
 
 # ----------------------------------------------------------------------------
@@ -239,12 +269,12 @@ def transcribe(wav: Path, model_size: str, lang: str, total_dur: float):
 
     detected = info.language or "en"
     prob = getattr(info, "language_probability", 0.0) or 0.0
-    lang_names = {"ru": "русский", "en": "английский"}
+    lang_names = {"ru": "русский", "en": "английский", "pl": "польский"}
     say(f"    → язык: {lang_names.get(detected, detected)} "
         f"({prob:.0%}), слов: {len(words)}")
-    if detected not in ("ru", "en"):
-        say("⚠️  ViralCut официально поддерживает только русский и английский. "
-            "Продолжаю, но качество не гарантируется.")
+    if detected not in SUPPORTED_LANGS:
+        say("⚠️  ViralCut официально поддерживает русский, английский и "
+            "польский. Продолжаю, но качество не гарантируется.")
     return words, detected
 
 
@@ -284,7 +314,7 @@ def transcript_for_llm(sents: list, limit_chars: int = 120_000) -> str:
 
 
 def llm_prompt(transcript: str, n: int, min_d: int, max_d: int, lang: str) -> str:
-    lang_name = "Russian" if lang == "ru" else "English"
+    lang_name = {"ru": "Russian", "pl": "Polish"}.get(lang, "English")
     return f"""You are a world-class viral short-form video editor (TikTok / YouTube Shorts / Reels).
 Below is a video transcript with timestamps in seconds: [start-end] text.
 
@@ -374,8 +404,7 @@ def analyze_claude_api(prompt: str, api_model: str):
 def sentence_score(s: Sentence, lang: str) -> float:
     text = s.text.lower()
     tokens = re.findall(r"\w+", text)
-    stems = RU_STEMS if lang == "ru" else EN_STEMS
-    phrases = RU_PHRASES if lang == "ru" else EN_PHRASES
+    stems, phrases = LEXICONS.get(lang, LEXICONS["en"])
     score = 0.0
     for t in tokens:
         if any(t.startswith(st) for st in stems):
@@ -429,8 +458,7 @@ def analyze_heuristic(sents: list, lang: str, n: int, min_d: int, max_d: int) ->
         title = sents[i].text.strip()
         if len(title) > 57:
             title = title[:57].rstrip() + "…"
-        tags = ["#shorts", "#рек", "#рекомендации"] if lang == "ru" \
-            else ["#shorts", "#viral", "#fyp"]
+        tags = HASHTAGS.get(lang, HASHTAGS["en"])
         chosen.append(Clip(st, en, title=title, hook="",
                            hashtags=tags,
                            score=max(1, int(val / max_val * 100)) if max_val else 50,
@@ -629,6 +657,38 @@ def build_ass(words: list, clip_start: float, font: str,
 # ----------------------------------------------------------------------------
 # Рендер клипов
 # ----------------------------------------------------------------------------
+_ENCODER = None
+
+ENCODERS = {
+    "nvenc": ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "23",
+              "-pix_fmt", "yuv420p"],
+    "qsv": ["-c:v", "h264_qsv", "-global_quality", "23", "-pix_fmt", "nv12"],
+    "cpu": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-pix_fmt", "yuv420p"],
+}
+
+
+def pick_encoder(mode: str) -> list:
+    """Выбирает видеокодировщик: аппаратный (NVENC/QSV), если доступен."""
+    global _ENCODER
+    if _ENCODER is not None:
+        return _ENCODER
+    order = [mode] if mode in ENCODERS else ["nvenc", "qsv"]
+    for name in order:
+        if name == "cpu":
+            break
+        test = run(["ffmpeg", "-hide_banner", "-f", "lavfi",
+                    "-i", "color=black:s=256x256:d=0.2",
+                    *ENCODERS[name], "-f", "null", "-"])
+        if test.returncode == 0:
+            _ENCODER = ENCODERS[name]
+            say(f"⚡ Кодировщик: {name} (аппаратное ускорение)")
+            return _ENCODER
+    _ENCODER = ENCODERS["cpu"]
+    say("🖥  Кодировщик: CPU (libx264)")
+    return _ENCODER
+
+
 def slugify(text: str, max_len: int = 40) -> str:
     t = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE).strip()
     t = re.sub(r"[\s-]+", "_", t)
@@ -638,7 +698,8 @@ def slugify(text: str, max_len: int = 40) -> str:
 def render_clip(video: Path, c: Clip, words: list, out_path: Path,
                 style: str, captions: bool, font: str, workdir: Path,
                 brand_text: str = "", brand_color: str = "&H0000FFFF",
-                highlight_color: str = "&H0000FFFF") -> bool:
+                highlight_color: str = "&H0000FFFF",
+                encoder: str = "auto") -> bool:
     clip_words = [w for w in words if w.start >= c.start - 0.2 and w.end <= c.end + 0.5]
     if not captions:
         clip_words = []
@@ -646,9 +707,9 @@ def render_clip(video: Path, c: Clip, words: list, out_path: Path,
     if style == "crop":
         base = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase," \
                "crop=1080:1920[base]"
-    else:  # blur
-        base = ("[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
-                "crop=1080:1920,boxblur=32:4[bg];"
+    else:  # blur (размываем уменьшенную копию — в разы быстрее, вид тот же)
+        base = ("[0:v]scale=270:480:force_original_aspect_ratio=increase,"
+                "crop=270:480,boxblur=10:2,scale=1080:1920[bg];"
                 "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
                 "[bg][fg]overlay=(W-w)/2:(H-h)/2[base]")
 
@@ -670,8 +731,7 @@ def render_clip(video: Path, c: Clip, words: list, out_path: Path,
            "-i", str(video.resolve()),
            "-filter_complex", fc,
            "-map", "[v]", "-map", "0:a?",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-           "-pix_fmt", "yuv420p", "-r", "30",
+           *pick_encoder(encoder), "-r", "30",
            "-c:a", "aac", "-b:a", "160k",
            "-movflags", "+faststart",
            str(out_path.resolve())]
@@ -725,8 +785,8 @@ def main() -> None:
     ap.add_argument("--clips", type=int, default=6, help="сколько шортсов сделать")
     ap.add_argument("--min-dur", type=int, default=15, help="мин. длина клипа, сек")
     ap.add_argument("--max-dur", type=int, default=60, help="макс. длина клипа, сек")
-    ap.add_argument("--lang", choices=["auto", "ru", "en"], default="auto",
-                    help="язык речи")
+    ap.add_argument("--lang", choices=["auto", "ru", "en", "pl"],
+                    default="auto", help="язык речи")
     ap.add_argument("--model", default="small",
                     choices=["tiny", "base", "small", "medium", "large-v3"],
                     help="модель Whisper (small = баланс, medium точнее)")
@@ -752,6 +812,9 @@ def main() -> None:
                     help="не удалять временные файлы")
     ap.add_argument("--no-cache", action="store_true",
                     help="не использовать сохранённую расшифровку")
+    ap.add_argument("--encoder", choices=["auto", "nvenc", "qsv", "cpu"],
+                    default="auto",
+                    help="видеокодировщик (auto = аппаратный, если есть)")
     ap.add_argument("--version", action="version", version=f"ViralCut {VERSION}")
     args = ap.parse_args()
 
@@ -799,7 +862,7 @@ def main() -> None:
                 "Попробуйте --model medium.")
         if args.lang != "auto":
             lang = args.lang
-        if lang not in ("ru", "en"):
+        if lang not in SUPPORTED_LANGS:
             lang = "en"
 
         sents = build_sentences(words)
@@ -811,17 +874,21 @@ def main() -> None:
         ok_clips = []
         name_to_idx = {"yellow": 0, "pink": 1, "cyan": 2, "lime": 3,
                        "orange": 4, "crimson": 5}
+        # у каждого видео свой стартовый цвет — партии из разных видео
+        # не выглядят одинаково
+        color_offset = sum(src_name.encode("utf-8")) % len(BRAND_COLORS)
         for idx, c in enumerate(clips, 1):
             name = f"{idx:02d}_score{c.score:02d}_{slugify(c.title)}.mp4"
             out_path = outdir / name
             if args.brand_color == "auto":
-                cname, ccode = BRAND_COLORS[(idx - 1) % len(BRAND_COLORS)]
+                cname, ccode = BRAND_COLORS[
+                    (color_offset + idx - 1) % len(BRAND_COLORS)]
             else:
                 cname, ccode = BRAND_COLORS[name_to_idx[args.brand_color]]
             if render_clip(video, c, words, out_path, args.style,
                            not args.no_captions, args.font, workdir,
                            brand_text=args.brand, brand_color=ccode,
-                           highlight_color=ccode):
+                           highlight_color=ccode, encoder=args.encoder):
                 files.append(out_path)
                 ok_clips.append(c)
                 extra = f", надпись: {cname}" if args.brand else ""

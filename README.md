@@ -1,8 +1,8 @@
 # 🎬 ViralCut
 
-**Бесплатный локальный аналог [Opus.pro](https://www.opus.pro/) и [Vizard.ai](https://vizard.ai/): режет длинные видео на вирусные вертикальные шортсы. Русский и английский.**
+**Бесплатный локальный аналог [Opus.pro](https://www.opus.pro/) и [Vizard.ai](https://vizard.ai/): режет длинные видео на вирусные вертикальные шортсы. Русский, английский, польский.**
 
-*Free, local, open-source alternative to Opus.pro / Vizard.ai: turns long videos into viral vertical shorts. Russian & English. [English docs below ⬇](#-english)*
+*Free, local, open-source alternative to Opus.pro / Vizard.ai: turns long videos into viral vertical shorts. Russian, English & Polish. [English docs below ⬇](#-english)*
 
 ---
 
@@ -85,7 +85,7 @@ python viralcut.py "видео.mp4" --brand "mysite.com - мой продукт"
 |---|---|---|
 | Цена | **бесплатно, без лимитов** | $15–30+/мес, лимит минут |
 | Приватность | **всё локально** | видео уходит в облако |
-| Языки | русский + английский | много |
+| Языки | русский, английский, польский | много |
 | ИИ-отбор моментов | Claude / эвристика | собственные модели |
 | Караоке-субтитры | ✅ | ✅ |
 | Автослежение за лицом | ❌ (blur/crop) | ✅ |
@@ -125,7 +125,8 @@ python viralcut.py "https://youtube.com/watch?v=XXXX" --min-dur 20 --max-dur 45
 
 Output: a `shorts_<name>` folder with ready-to-post MP4s and `report.md`.
 
-Supported speech languages: **Russian and English**.
+Supported speech languages: **Russian, English and Polish**. Hardware
+encoding (NVENC / Intel QSV) is auto-detected for fast rendering.
 
 ## License
 
